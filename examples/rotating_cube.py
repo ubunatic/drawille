@@ -80,7 +80,7 @@ def __main__(stdscr, projection=False):
             if projection:
                 # Transform the point from 3D to 2D
                 p = p.project(50, 50, 50, 50)
-             #Put the point in the list of transformed vertices
+            # Put the point in the list of transformed vertices
             t.append(p)
 
         for f in faces:

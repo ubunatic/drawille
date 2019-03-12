@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# flake8: noqa: E203
 
 # example:
 # $  PYTHONPATH=`pwd` python examples/image2term.py http://fc00.deviantart.net/fs71/f/2011/310/5/a/giant_nyan_cat_by_daieny-d4fc8u1.png -t 100 -r 0.01
+
+from __future__ import absolute_import
 
 try:
     from PIL import Image
@@ -10,9 +13,10 @@ except:
     from sys import stderr
     stderr.write('[E] PIL not installed\n')
     exit(1)
+
 from drawille import Canvas
-from StringIO import StringIO
-import urllib2
+from io import BytesIO
+import requests
 
 
 def getTerminalSize():
@@ -40,9 +44,11 @@ def getTerminalSize():
 
 def image2term(image, threshold=128, ratio=None, invert=False):
     if image.startswith('http://') or image.startswith('https://'):
-        i = Image.open(StringIO(urllib2.urlopen(image).read())).convert('L')
+        f = BytesIO(requests.get(image).content)
+        i = Image.open(f).convert('L')
     else:
-        i = Image.open(open(image)).convert('L')
+        with open(image,'rb') as f:
+            i = Image.open(f).convert('L')
     w, h = i.size
     if ratio:
         w = int(w * ratio)
@@ -59,24 +65,22 @@ def image2term(image, threshold=128, ratio=None, invert=False):
     can = Canvas()
     x = y = 0
 
-    try:
-         i_converted = i.tobytes()
-    except AttributeError:
-         i_converted = i.tostring()
+    try:                   i_converted = i.tobytes()
+    except AttributeError: i_converted = i.tostring()
 
     for pix in i_converted:
+        if type(pix) is not int: pix = ord(pix)
         if invert:
-            if ord(pix) > threshold:
+            if pix > threshold:
                 can.set(x, y)
         else:
-            if ord(pix) < threshold:
+            if pix < threshold:
                 can.set(x, y)
         x += 1
         if x >= w:
             y += 1
             x = 0
     return can.frame(0, 0)
-
 
 def argparser():
     import argparse

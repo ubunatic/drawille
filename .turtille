@@ -1,0 +1,25 @@
+# The `.turtille` file provides predefined turtle funcs for playing with the turtle.
+# It is loaded from the current working dir when `turtille` starts.
+#
+# NOTE: All comments will be lost since load/save does not handle comments yet.
+#       Use your git mergetool to restore comments before committing.
+
+    circles -> c1 c2 c3 c4
+    flower10 -> flower r 10.0
+    flower -> clear rec45 rec45 rec45 rec45 rec45 rec45 rec45 rec45
+    r2f1 -> r 2.0 f 1.0
+    r1f1 -> r 1.0 f 1.0
+    circles10 -> circles r 10.0
+    r3f1 -> r 3.0 f 1.0
+    c4 -> repeat 90 r4f1
+    rect -> fr90 fr90 fr90 fr90
+    c3 -> repeat 120 r3f1
+    c2 -> repeat 180 r2f1
+    circle -> repeat 360 r2f1
+    r4f1 -> r 5.0 f 1.0
+    c1 -> repeat 360 r1f1
+    rec45 -> rect r 45.0
+    fr90 -> f 20.0 r 90.0
+    x -> repeat 10 f 5.0
+
+# vim: ft=markdown

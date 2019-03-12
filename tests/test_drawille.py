@@ -78,7 +78,7 @@ class LineTestCase(TestCase):
 
 
     def test_single_pixel(self):
-        self.assertEqual(list(line(0, 0, 0, 0)), [(0, 0)])
+        self.assertEqual(list(line(0, 0, 0, 0)), [], "a line with zero length must not set any pixel")
 
 
     def test_row(self):

@@ -1,0 +1,5 @@
+# this a simple test file
+testr90  -> r 90  
+testfr90 -> f 10 testr90  
+testrect -> 4 * testfr90
+testrect

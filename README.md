@@ -90,12 +90,12 @@ Tested terminals
 ### LICENSE
 
 ```
-drawille is free software: you can redistribute it and/or modify
+Drawille is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-drawille is distributed in the hope that it will be useful,
+Drawille is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU Affero General Public License for more details.
@@ -136,3 +136,10 @@ along with drawille. If not, see < http://www.gnu.org/licenses/ >.
  * [Reddit](http://www.reddit.com/r/programming/comments/263opn/drawille_pixel_graphics_in_a_terminal_using/)
  * [ohloh](http://www.ohloh.net/p/drawille)
  * [Braille unicode pixelation](http://blog.jverkamp.com/2014/05/30/braille-unicode-pixelation/)
+
+### Contributers
+
+| Name and Link                             | Responsibility
+|-------------------------------------------|-------------------------------
+| [Adam Tauber](https://github.com/asciimoo)| project owner, braille drawing
+| [Uwe Jugel](https://github.com/ubunatic)  | Py2/Py3 compatibility and REPL

@@ -4,8 +4,10 @@
 import curses
 from drawille import Canvas, line
 from time import sleep
-from thread import start_new_thread
-from Queue import Queue
+try:                from thread import start_new_thread
+except ImportError: from _thread import start_new_thread
+try:                from Queue import Queue
+except ImportError: from queue import Queue
 import locale
 from random import randint
 
@@ -183,7 +185,7 @@ def main(stdscr):
                     c.set(x,y)
         f = c.frame()+'\n'
         stdscr.addstr(0, 0, f)
-        stdscr.addstr(height/4+1, 0, 'score: {0}'.format(score))
+        stdscr.addstr(int(height/4+1), 0, 'score: {0}'.format(score))
         stdscr.refresh()
         c.clear()
 

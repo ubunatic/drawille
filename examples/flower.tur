@@ -1,0 +1,7 @@
+#!/usr/bin/env turtille
+fr90     -> f 20 r 90
+rect     -> 4 * fr90
+rect30   -> rect r 30
+flower   -> 12 * rect30
+flower10 -> clear flower r 10
+animate 10 flower10
