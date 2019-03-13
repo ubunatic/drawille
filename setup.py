@@ -22,6 +22,7 @@ setup(
     install_requires = [
         'pygments<3.0.0',
         'prompt-toolkit<2.0.0',
+        'lark-parser',
     ] + extra_requires,
     download_url = 'https://github.com/asciimoo/drawille/tarball/master',
     entry_points={

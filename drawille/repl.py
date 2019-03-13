@@ -18,6 +18,7 @@ from __future__ import unicode_literals, absolute_import, print_function
 from builtins import open, super
 
 import re, os, logging, time
+import lark
 from drawille.turtle import Turtle
 from prompt_toolkit import prompt
 from prompt_toolkit.history import InMemoryHistory
@@ -330,13 +331,7 @@ class Repl(BaseVM):
         tur.last_cmd = program[-1]
         tur.print_frame()
 
-    def parse(tur, text):
-        """parse the given `text` to a program and store any defined functions as new commands"""
-        text = text.strip()
-        tokens = [t.strip() for t in text.split(' ')]
-        tokens.reverse()
-        program = [t for t in tokens if len(t) > 0]
-        return list(tur.parse_program(program))
+    def parse(tur, text): raise NotImplementedError('initialized VM without a parser class')
 
     @property
     def last_cmd(tur): return tur._last_cmd
@@ -349,6 +344,17 @@ class Repl(BaseVM):
     def last(tur):
         cmd = tur.last_cmd
         if cmd is not None: return tur.commands[cmd[0]](*cmd[1:])
+
+
+class WithDefaultParser(object):
+
+    def parse(tur, text):
+        """parse the given `text` to a program and store any defined functions as new commands"""
+        text = text.strip()
+        tokens = [t.strip() for t in text.split(' ')]
+        tokens.reverse()
+        program = [t for t in tokens if len(t) > 0]
+        return list(tur.parse_program(program))
 
     def parse_program(tur, tokens):
         while len(tokens) > 0:
@@ -415,8 +421,107 @@ class Repl(BaseVM):
             if arg is None: return (cmd,)
             else:           return (cmd, arg)
 
+class WithLarkParser(object):
+    def __init__(tur):
+        super().__init__()
+        tur._lark_transformer = TurtilleTransformer(tur)
+        tur._lark = lark.Lark(r"""
+        start: NL? (func nl | run nl | comment nl )* end
+        ?end:     func | run
+        ?nl:      NL+
+        ?func:    name "->" cmds    -> func
+        ?run:     cmds              -> run
+        ?comment: "#" any*          -> comment
+        ?any:     LETTER+ | INT | FLOAT | CNAME
 
-class Turtille(Repl, WithAnimate, WithSaveAndLoad):
+        ?cmds: cmd+
+
+        ?cmd: MOVEMENT [expr]   -> movement
+           | GOTO expr expr     -> goto
+           | name               -> cmd
+           | "repeat" expr name -> repeat
+           | expr "*" name      -> repeat
+           | name "*" expr      -> repeated
+
+        MOVEMENT: "f"|"b"|"l"|"r"|"forward"|"back"|"backward"|"left"|"right"
+        MOVE: "move"|"mv"|"m"
+        GOTO: MOVE|"goto"|"g"
+
+        ?expr: factor
+            | expr "+" factor  -> add
+            | expr "-" factor  -> sub
+        ?factor: atom
+            | factor "*" atom  -> mul
+            | factor "/" atom  -> div
+        ?atom: int | float
+            | "-" atom         -> neg
+            | "(" expr ")"
+
+        ?int:   INT            -> int
+        ?float: FLOAT          -> float
+
+        ?name: CNAME           -> name
+        ?arg:  CNAME           -> name
+        val:   name | expr
+
+        %import common.INT
+        %import common.FLOAT
+        %import common.LETTER
+        %import common.CNAME
+        %import common.NEWLINE -> NL
+        %import common.WS_INLINE
+        %ignore WS_INLINE
+        """)
+
+    def parse(tur, text):
+        tf = tur._lark_transformer
+        tree = tur._lark.parse(text)
+        print("CODE:\n", text.strip())
+        print("TREE:\n", tree)
+        rest = tf.transform(tree)
+        print("REST:\n", rest)
+        print("AST:")
+        for cmd in tf.program:
+            print(cmd)
+        tur.run_program(tf.program)
+        tur.print_frame()
+
+@lark.v_args(inline=True)
+class TurtilleTransformer(lark.Transformer):
+    from operator import add, sub, mul, truediv as div, neg
+    float = float
+    int   = int
+
+    def __init__(t, tur):
+        t.tur = tur  # type: Turtille
+        t.program = []
+
+    def name(t, token):               return token.value
+    def comment(t, *tokens):          pass
+    def movement(t, token, num=None):
+        cmd = token.value[0]
+        if num is None:
+            if   cmd in ('r','l','right','left'):               num = 45  # turn 45 deggree by default
+            elif cmd in ('f','b','forward','backward', 'back'): num = 20  # move 20 steps by default
+        return (cmd, num)
+    def goto(t, name, x, y):          return (name, x, y)
+    def repeat(t, num, name):         return ('repeat', num, name)
+    def repeated(t, name, num):       return t.repeat(num, name)
+    def cmd(t, name):                 return (name, )
+    def cmds(t, *cmds):               return list(cmds)
+    def func(t, name, cmds):
+        # t.program.append(('func', name, cmds))
+        t.tur.add_func(name, cmds)
+    def run(t, cmds):
+        if   type(cmds) is tuple: t.program.append(cmds)
+        elif type(cmds) is list:  t.program.extend(cmds)
+        else: raise TypeError('invalid command list type: {}'.format(type(cmds)))
+
+class Lurtille(WithLarkParser, Repl):
+    def __init__(tur):
+        super().__init__()
+
+class Turtille(WithDefaultParser, WithAnimate, WithSaveAndLoad, Repl):
     """Turtille is a Turtle REPL for interactively running turtille commands and programs.
     It supports `save` and `load` for the currently defined set of user functions and
     can also `animate` a command repeatedly.
