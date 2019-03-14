@@ -34,7 +34,7 @@ def test_run_command():
     tur.reset()
 
     program = tur.load(tur_path('test.tur'))
-    assert program == [('testrect',)]
+    assert program == [('testrect', ())]
     tur.run_program(program)
     for k in tur.funcs: tur.print_func(k)
     assert 'testrect' in tur.funcs

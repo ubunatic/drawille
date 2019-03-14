@@ -85,6 +85,7 @@ Other commands are:
     help   # show this help
     reset  # reset Turtille (angle and position)
     clear  # clear the screen (but do not reset angle and position)
+    print  # print the turtle frame to the screen
     quit   # exit Turtille
 
 """
@@ -112,13 +113,13 @@ class TurtilleLexer(RegexLexer):
     ])
 
 
-class DefaultPrinter(object):
-    """DefaultPrinter is a Mixin Class for the Turtle VM for printng output to the console.
+class ConsolePrinter(object):
+    """ConsolePrinter is a Mixin Class for the Turtle VM for printng output to the console.
     All output is handled in this class, the BaseVM class is output agnostic.
     """
     def print_text(tur, *args):
         """print_text prints is the text output function of the Turtle VM,
-        for the DefaultPrinter it is used to print the turtles current frame.
+        for the ConsolePrinter it is used to print the turtles current frame.
         It uses Python's print function."""
         print(*args)
 
@@ -131,7 +132,7 @@ class DefaultPrinter(object):
         tur.print_text(tur.format_func(command))
 
 
-class BaseVM(DefaultPrinter):
+class BaseVM(ConsolePrinter):
     """BaseVM is an extentable Turle VM that implements the basic Turtle commands or
     forwards them the it's `turtle`. It can run Turtille programs and print the result.
     Usage Example:
@@ -156,10 +157,12 @@ class BaseVM(DefaultPrinter):
                     ('clear',   tur.turtle.clear),
                     ('move',    tur.turtle.move),
                     ('quit',    tur.quit),
-                    ('print',   tur.print_func),
+                    ('inspect', tur.print_func),
                     ('help',    tur.help),
+                    ('print',   tur.print_frame),
                     ('repeat',  tur.repeat),
-                    ('reset',   tur.reset)]:
+                    ('reset',   tur.reset),
+                    ('comment', tur.comment)]:
             tur.add_command(k,v)
         super().__init__()
 
@@ -179,17 +182,25 @@ class BaseVM(DefaultPrinter):
         if cmd in tur.reserved_commands:
             raise ValueError('cannot override builtin command: {}'.format(cmd))
         else:
-            program = commands[:]
+            program = tur.create_program(commands, safe=False)
             def run_function(): tur.run_program(program)
             tur.commands[cmd] = run_function
             tur.funcs[cmd] = program
 
-    def run_program(tur, commands):
+    def create_program(tur, commands, safe=True):
+        """create_program creates a program from a list of commands and checks
+        if all commands are defined and completing the command arguments.
+        Using `safe=False` omits the command check, allowing for references to
+        the unintialized functions and commands.
+        """
         program = []
         errors  = []
-        for res in commands:
-            cmd, args = res[0], res[1:]
-            if cmd not in tur.commands:
+        for tup in commands:
+            if   len(tup) == 1: cmd, args = tup, ()
+            elif len(tup) == 2: cmd, args = tup[0], tup[1]
+            else:               errors.append('invalid command tuple: {}'.format(tup))
+
+            if safe and cmd not in tur.commands:
                 errors.append('invalid function or command: "{}"'.format(cmd))
             else:
                 program.append((cmd, args))
@@ -197,20 +208,25 @@ class BaseVM(DefaultPrinter):
         if len(errors) > 0:
             raise ValueError('Program has errors:\n' + '\n'.join(errors))
 
+        # log.debug('created program: %s', program)
+        return program
+
+    def run_program(tur, program):
+        """run_program directly runs a valid program"""
         for cmd, args in program:
             log.debug('running: %s%s', cmd, tuple(args))
             tur.commands[cmd](*args)
 
-    def repeat(tur, *repeat_args):
-        # also accept single list of args instead of implicit *args
-        if len(repeat_args) == 1: repeat_args = repeat_args[0]
-        ra = repeat_args
-        num, cmd, args = ra[0], ra[1], ra[2:]
-        if cmd not in tur.commands:
-            raise ValueError('cannot repeat invalid function or command: {}'.format(cmd))
-        else:
-            fn = tur.commands[cmd]
-            for i in range(num): fn(*args)
+    def repeat(tur, num, cmds):
+        program = tur.create_program(cmds)
+        calls = [(tur.commands[cmd], args) for cmd, args in program]
+        def repetiton():
+            for fn, args in calls: fn(*args)
+
+        log.debug('starting repeat loop: n=%s, calls=%s, commands=%s', num, calls, cmds)
+        for i in range(num): repetiton()
+
+    def comment(tur, text): log.debug('comment: %s', text)
 
     def run(tur, text): tur.run_program(tur.parse(text))
 
@@ -240,19 +256,32 @@ class WithAnimate(object):
     def clear_screen(tur):
         os.system('cls' if os.name == 'nt' else 'clear')
 
-    def animate(tur, num, cmd):
-        if cmd not in tur.funcs:
-            raise ValueError('invalid animation function: {}'.format(cmd))
+    def animate(tur, num, *cmds):
+        program = tur.create_program(cmds)
+        calls = []
+        animation_args = ()
+
+        def _animation():
+            for fn, args in calls: fn(*args)
+
+        if len(program) == 1:
+            # define animation function using given single command and args
+            name, animation_args = program[0]
+            animation = tur.commands[name]
+        else:
+            # setup calls for multi-step animation function
+            calls = [(tur.commands[cmd], args) for cmd, args in program]
+            animation = _animation
+
         # since debug logging will destroy the animation, we need to temporary disable it
         level = log.getEffectiveLevel()
         try:
-            fn = tur.commands[cmd]
             log.setLevel(logging.INFO)
             # TODO (uj): use curses animate
             # animate(tur.turtle, fn)
             i = 0
             while True:
-                fn()
+                animation(*animation_args)
                 tur.clear_screen()
                 tur.print_text("# press Ctrl-C to stop animation")
                 tur.print_frame()
@@ -319,17 +348,21 @@ class Repl(BaseVM):
             except Exception as err:         print(err)  # any errors are printed to repl
 
     def repl(tur):
-        """run the repl once: first read input, then execute the program"""
+        """run the repl once: first read the input, then execute the program"""
         completer = WordCompleter(list(tur.commands), ignore_case=True)
         text = prompt('Turtille [{}]: '.format(tur.lino),
                       history=tur.history,
                       lexer=TurtilleLexer,
                       completer=completer)
-        program = list(tur.parse(text))
+        program = tur.parse(text)
         tur.run_program(program)
-        if len(program) == 0 or len(program) == 1 and program[0][0] in ('h','help'): return
-        tur.last_cmd = program[-1]
-        tur.print_frame()
+        if len(program) == 0 or len(program) == 1 and program[0][0] in ('h','help'):
+            # don't store last command and do not refresh after showing help or for empty commands
+            pass
+        else:
+            # in all other cases, we save the last command and print what we have
+            tur.last_cmd = program[-1]
+            tur.print_frame()
 
     def parse(tur, text): raise NotImplementedError('initialized VM without a parser class')
 
@@ -338,110 +371,32 @@ class Repl(BaseVM):
 
     @last_cmd.setter
     def last_cmd(tur, command):
-        cmd = command[0]
-        if cmd not in ('_', 'last'): tur._last_cmd = command
+        if command[0] not in ('_', 'last'): tur._last_cmd = command
 
     def last(tur):
+        """run last command again and return result"""
         cmd = tur.last_cmd
-        if cmd is not None: return tur.commands[cmd[0]](*cmd[1:])
-
-
-class WithDefaultParser(object):
-
-    def parse(tur, text):
-        """parse the given `text` to a program and store any defined functions as new commands"""
-        text = text.strip()
-        tokens = [t.strip() for t in text.split(' ')]
-        tokens.reverse()
-        program = [t for t in tokens if len(t) > 0]
-        return list(tur.parse_program(program))
-
-    def parse_program(tur, tokens):
-        while len(tokens) > 0:
-            res = tur.parse_command(tokens)
-            if res is not None: yield res
-
-    def parse_comment(tur, tokens):
-        while len(tokens) > 0 and tokens.pop() != '\n': pass
-
-    def parse_repeat(tur, num, tokens):
-        num  = int(num)
-        res  = tur.parse_command(tokens)
-        cmd  = res[0]
-        args = res[1:]
-        return ('repeat', num, cmd) + tuple(args)
-
-    def parse_animate(tur, arg, tokens):
-        try:               num = int(arg); cmd = tokens.pop()
-        except ValueError: num = None;     cmd = arg
-        return ('animate', num, cmd)
-
-    def parse_func(tur, name, tokens):
-        program = []
-        while len(tokens) > 0:
-            t = tokens.pop()
-            program.append(t)
-            if t == '\n': break
-        program.reverse()
-        log.debug("parse_func:    %s", program)
-        commands = list(tur.parse_program(program))
-        tur.add_func(name, commands)
-
-    def parse_command(tur, tokens):
-        arg1 = tokens.pop()
-        if len(tokens) > 0: arg2 = tokens[-1]  # parse look ahead to detect funcs and loops
-        else:               arg2 = None
-
-        log.debug("parse_command: %s", tokens[:])
-
-        if   arg1.startswith('#'):       return tur.parse_comment(tokens)
-        elif arg2 == '*':  tokens.pop(); return tur.parse_repeat(arg1, tokens)
-        elif arg2 == '->': tokens.pop(); return tur.parse_func(arg1, tokens)
-        elif arg1 == 'repeat':           return tur.parse_repeat(tokens.pop(), tokens)
-        elif arg1 in ('move',    'm'):   return (arg1, float(tokens.pop()), float(tokens.pop()))
-        elif arg1 in ('print',   'p'):   return (arg1, tokens.pop())
-        elif arg1 in ('animate', 'a'):   return tur.parse_animate(tokens.pop(), tokens)
-        elif arg1 in tur.unaries:        return (arg1,)
-        elif arg1 in tur.funcs:          return (arg1,)
-        else:
-            cmd, arg = arg1, None
-
-            log.debug("parse_command: %s (%s,%s) START", tokens[:], cmd, arg)
-            if len(tokens) > 1 and tokens[-2] in ['*']: pass  # ignore arg2 since it belongs to the loop
-            elif arg2 is not None:
-                # parse number parameter and consume it if possible
-                try:               arg = float(arg2); tokens.pop()  # use and consume number arg2
-                except ValueError: arg = None
-            # everything is parsed and consumed now, but we can still add some default
-            if arg is None:
-                if   cmd in ('r','l','right','left'):       arg = 45  # turn 45 deggree by default
-                elif cmd in ('f','b','forward','backward'): arg = 20  # move 20 steps by default
-
-            log.debug("parse_command: %s (%s,%s) END", tokens[:], cmd, arg)
-            if arg is None: return (cmd,)
-            else:           return (cmd, arg)
+        if cmd is not None: return tur.commands[cmd[0]](*cmd[1])
 
 class WithLarkParser(object):
     def __init__(tur):
         super().__init__()
         tur._lark_transformer = TurtilleTransformer(tur)
         tur._lark = lark.Lark(r"""
-        start: NL? (func nl | run nl | comment nl )* end
-        ?end:     func | run
+        start:    func | run | comment
         ?nl:      NL+
-        ?func:    name "->" cmds    -> func
-        ?run:     cmds              -> run
-        ?comment: "#" any*          -> comment
-        ?any:     LETTER+ | INT | FLOAT | CNAME
+        ?func:    name "->" cmd+ comment? -> func
+        ?run:     cmd+           comment? -> run
+        ?comment: (/[#;].*/ | /--.*/)     -> comment
 
-        ?cmds: cmd+
-
-        ?cmd: MOVEMENT [expr]   -> movement
-           | GOTO expr expr     -> goto
-           | name               -> cmd
-           | "repeat" expr name -> repeat
-           | expr "*" name      -> repeat
-           | name "*" expr      -> repeated
+        ?cmd: MOVEMENT [expr]    -> movement
+           | GOTO expr expr      -> goto
+           | name [expr]         -> cmd
+           | "animate" expr cmd+ -> animate
+           | "animate" cmd+      -> animate
+           | "repeat" expr cmd+  -> repeat
+           | expr "*" cmd        -> repeat
+           | cmd "*"  expr       -> repeated
 
         MOVEMENT: "f"|"b"|"l"|"r"|"forward"|"back"|"backward"|"left"|"right"
         MOVE: "move"|"mv"|"m"
@@ -466,7 +421,7 @@ class WithLarkParser(object):
 
         %import common.INT
         %import common.FLOAT
-        %import common.LETTER
+        %import common.WORD
         %import common.CNAME
         %import common.NEWLINE -> NL
         %import common.WS_INLINE
@@ -475,16 +430,17 @@ class WithLarkParser(object):
 
     def parse(tur, text):
         tf = tur._lark_transformer
-        tree = tur._lark.parse(text)
-        print("CODE:\n", text.strip())
-        print("TREE:\n", tree)
-        rest = tf.transform(tree)
-        print("REST:\n", rest)
-        print("AST:")
-        for cmd in tf.program:
-            print(cmd)
-        tur.run_program(tf.program)
-        tur.print_frame()
+        tf.begin()
+        # TODO: add comments support in the gammar
+        lines = text.split("\n")
+        for line in lines:
+            if line.strip() == "": continue
+            tree = tur._lark.parse(line)
+            tf.transform(tree)
+
+        if len(tf.program) > 0:
+            log.debug("PROGRAM:%s", "\n".join(str(cmd) for cmd in tf.program))
+        return list(tf.program)
 
 @lark.v_args(inline=True)
 class TurtilleTransformer(lark.Transformer):
@@ -494,48 +450,31 @@ class TurtilleTransformer(lark.Transformer):
 
     def __init__(t, tur):
         t.tur = tur  # type: Turtille
+        t.program = None
+
+    def begin(t):
         t.program = []
 
     def name(t, token):               return token.value
-    def comment(t, *tokens):          pass
-    def movement(t, token, num=None):
-        cmd = token.value[0]
-        if num is None:
-            if   cmd in ('r','l','right','left'):               num = 45  # turn 45 deggree by default
-            elif cmd in ('f','b','forward','backward', 'back'): num = 20  # move 20 steps by default
-        return (cmd, num)
-    def goto(t, name, x, y):          return (name, x, y)
-    def repeat(t, num, name):         return ('repeat', num, name)
-    def repeated(t, name, num):       return t.repeat(num, name)
-    def cmd(t, name):                 return (name, )
-    def cmds(t, *cmds):               return list(cmds)
-    def func(t, name, cmds):
-        # t.program.append(('func', name, cmds))
-        t.tur.add_func(name, cmds)
-    def run(t, cmds):
-        if   type(cmds) is tuple: t.program.append(cmds)
-        elif type(cmds) is list:  t.program.extend(cmds)
-        else: raise TypeError('invalid command list type: {}'.format(type(cmds)))
+    def comment(t, token):          return ('comment', (token.value,))
+    def movement(t, token, *args): return t.call(token.value[0], *args)
+    def call(t, cmd, *args):
+        if len(args) == 0:
+            if   cmd in ('r','l','right','left'):               args = (45,)  # turn 45 deggree by default
+            elif cmd in ('f','b','forward','backward', 'back'): args = (20,)  # move 20 steps by default
+        return (cmd, args)
 
-class Lurtille(WithLarkParser, Repl):
-    def __init__(tur):
-        super().__init__()
+    def goto(t, name, x, y):          return (name, (x, y))
+    def cmd(t, name, *args):          return t.call(name, *args)
+    def animate(t, *args):            return t.call('animate', *args)
+    def repeat(t, num, *cmds):        return t.call('repeat', num, cmds)
+    def repeated(t, cmd, num):        return t.repeat(num, cmd)
+    def func(t, name, *cmds):         t.tur.add_func(name, cmds)
+    def run(t, *cmds):                t.program.extend(cmds)
 
-class Turtille(WithDefaultParser, WithAnimate, WithSaveAndLoad, Repl):
-    """Turtille is a Turtle REPL for interactively running turtille commands and programs.
-    It supports `save` and `load` for the currently defined set of user functions and
-    can also `animate` a command repeatedly.
-
-    Usage Example:
-
-        tur = Turtille()
-        tur.run('fr90 -> f r 90')
-        tur.run('rect -> 4 * fr90')
-        tur.run('rect')
-        tur.print_frame()
-
-    """
+class Turtille(WithLarkParser, WithAnimate, WithSaveAndLoad, Repl):
     def __init__(tur):
         super().__init__()
         tur.load(silent=True)
+
 
